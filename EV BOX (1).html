@@ -1,0 +1,117 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EV BOX</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>:root{--n:#0b1530;--n2:#14224a;--g:#19e68c;--w:#fff;--m:#9fb0d6}*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--n);color:var(--w)}
+nav{display:flex;justify-content:space-between;align-items:center;padding:14px 5vw;background:#0a1228;position:sticky;top:0;z-index:1000}.logo{font-weight:800;font-size:22px}.logo b{color:var(--g)}
+button,.btn{background:var(--g);color:#032;border:0;border-radius:12px;padding:10px 18px;font-weight:700;cursor:pointer;transition:.2s}button:hover{transform:translateY(-2px)}button.o{background:none;color:var(--w);border:1px solid var(--m)}
+input,select{background:var(--n2);border:1px solid #2a3b6e;color:var(--w);padding:10px;border-radius:10px;width:100%;margin:5px 0}.card{background:var(--n2);border-radius:18px;padding:20px;margin:12px 0;animation:f .4s}@keyframes f{from{opacity:0;transform:translateY(8px)}}
+.hero{padding:12vh 5vw;text-align:center}.hero h1{font-size:clamp(34px,6vw,64px);margin:0}.hero h1 span{color:var(--g)}.wrap{padding:20px 5vw;max-width:1200px;margin:auto}.grid{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+#map{height:520px;border-radius:18px;background:#0f1d3d;background-image:linear-gradient(#1b2d5c 1px,transparent 1px),linear-gradient(90deg,#1b2d5c 1px,transparent 1px);background-size:48px 48px}.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1}.tag{padding:2px 10px;border-radius:99px;background:#223;font-size:12px}.hero2{min-height:78vh;display:flex;align-items:center;padding:6vh 5vw;background:radial-gradient(circle at 80% 30%,#0f5a47 0,transparent 45%),linear-gradient(160deg,#0b1530,#102a52)}.hero2 h1{font-size:clamp(40px,7vw,76px);line-height:1.02;margin:14px 0}.hero2 h1 span{color:var(--g)}.m{color:var(--m)}.cta{margin:22px 0;justify-content:flex-start}.cta>*{flex:0 0 auto}.sbar{display:flex;gap:8px;max-width:480px}.sbar input{margin:0}.c3,.c4{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}.ph{height:110px;border-radius:12px;background:linear-gradient(135deg,#19e68c33,#4da3ff33);display:grid;place-items:center;font-size:36px;margin-bottom:10px}h2{margin:36px 0 6px}
+#err{background:#7a1d2b;padding:10px 5vw;display:none}@media(max-width:800px){.grid{grid-template-columns:1fr}}</style></head><body>
+<div style="background:#19e68c;color:#032;text-align:center;padding:6px;font-size:13px;font-weight:600">PREVIEW with fake in-memory data. Log in with any email: containing “host” = Host, “admin” = Admin, else Customer. Any 8+ char password.</div><nav><div class="logo">EV<b>BOX</b></div><div id="nav"></div></nav><div id="err"></div><div id="app"></div>
+<script>
+const CFG={url:'YOUR_SUPABASE_URL',key:'YOUR_SUPABASE_ANON_KEY'}; // anon key is public; RLS protects data
+const $=(s)=>document.querySelector(s),app=$('#app'),inr=p=>'₹'+(p/100).toFixed(2);
+const err=m=>{const e=$('#err');e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',5000)};
+if(0)app.innerHTML='<div class="wrap card">Set CFG.url and CFG.key at the top of index.html, then run schema.sql in Supabase.</div>';
+let user=null,prof=null,sel=null,map;
+/* PREVIEW MODE: in-memory fake Supabase. Data resets on reload. */
+const DB={profiles:[],bookings:[],chargers:[
+{id:'c1',host_id:null,name:'DEMO Hitech City Fast Hub',address:'Hitech City, Hyderabad',lat:17.4435,lng:78.3772,kind:'public',kw:50,connector:'CCS2',price_paise:25000,accepting:true,status:'approved'},
+{id:'c2',host_id:null,name:'DEMO Banjara Hills Station',address:'Banjara Hills, Hyderabad',lat:17.4126,lng:78.4482,kind:'public',kw:30,connector:'CCS2',price_paise:20000,accepting:false,status:'approved'},
+{id:'c3',host_id:'h0',name:'DEMO Jubilee Hills Home Charger',address:'Jubilee Hills, Hyderabad',lat:17.4326,lng:78.4071,kind:'home',kw:7.4,connector:'Type 2',price_paise:12000,accepting:true,status:'approved'},
+{id:'c4',host_id:'h0',name:'DEMO Gachibowli Home Charger',address:'Gachibowli, Hyderabad',lat:17.4401,lng:78.3489,kind:'home',kw:3.3,connector:'Type 2',price_paise:9000,accepting:true,status:'approved'},
+{id:'c5',host_id:'h0',name:'DEMO Kondapur Home Charger (pending)',address:'Kondapur, Hyderabad',lat:17.4616,lng:78.3649,kind:'home',kw:7.4,connector:'Type 2',price_paise:10000,accepting:true,status:'pending'}]};
+let SESS=null,N=100;const uid=()=>'x'+(N++);
+const fail=m=>({data:null,error:{message:m}});
+class Q{constructor(t){this.t=t;this.f=[];this.op='s'}select(){return this}eq(k,v){this.f.push([k,v]);return this}order(){return this}single(){this.one=1;return this}
+insert(r){this.op='i';this.r=r;return this}update(r){this.op='u';this.r=r;return this}
+then(res){res(this.run())}
+run(){let rows=DB[this.t].filter(r=>this.f.every(([k,v])=>r[k]===v));const me=SESS&&DB.profiles.find(p=>p.id===SESS.id);
+ if(this.op==='i'){const r={id:uid(),accepting:true,...this.r,host_id:me.id,status:'pending'};DB[this.t].push(r);return{data:r,error:null}}
+ if(this.op==='u'){rows.forEach(r=>Object.assign(r,this.r));return{data:rows,error:null}}
+ if(this.t==='chargers'&&(!me||me.role!=='admin'))rows=rows.filter(c=>c.status==='approved'||(me&&c.host_id===me.id));
+ if(this.t==='bookings'){if(me&&me.role==='host')rows=rows.filter(b=>DB.chargers.find(c=>c.id===b.charger_id).host_id===me.id);
+  rows=rows.map(b=>({...b,chargers:{name:DB.chargers.find(c=>c.id===b.charger_id).name}})).reverse()}
+ return{data:this.one?rows[0]:rows,error:null}}}
+const sb={auth:{async getSession(){return{data:{session:SESS?{user:SESS}:null}}},
+ async signOut(){SESS=null},async resetPasswordForEmail(){return{error:null}},
+ async signInWithPassword({email}){const role=/admin/.test(email)?'admin':/host/.test(email)?'host':'customer';return this.signUp({email,options:{data:{role,full_name:email.split('@')[0]}}})},
+ async signUp({email,options}){let p=DB.profiles.find(x=>x.email===email);if(!p){p={id:/host/.test(email)?'h1':uid(),email,role:options.data.role,full_name:options.data.full_name,phone:options.data.phone};DB.profiles.push(p)}SESS={id:p.id};return{data:{session:{}},error:null}}},
+ from:t=>new Q(t),
+ async rpc(fn,a){const me=SESS.id;
+  if(fn==='create_booking'){const c=DB.chargers.find(x=>x.id===a.p_charger);if(!c||!c.accepting||c.status!=='approved')return fail('Charger unavailable');
+   const s=new Date(a.p_start).getTime(),e=s+a.p_hours*3600e3;if(s<Date.now())return fail('Start time in the past');
+   if(DB.bookings.some(b=>b.charger_id===c.id&&['pending','confirmed'].includes(b.status)&&s<b.e&&e>b.s))return fail('exclusion constraint');
+   const amt=Math.round(c.price_paise*a.p_hours),fee=Math.round(amt*.15);
+   DB.bookings.push({id:uid(),charger_id:c.id,customer_id:me,s,e,during:'["'+new Date(s).toISOString()+'","'+new Date(e).toISOString()+'")',hours:a.p_hours,amount:amt,fee,host_share:amt-fee,status:'pending',payment_status:'unpaid'});return{data:{},error:null}}
+  const b=DB.bookings.find(x=>x.id===(a.p_booking));if(!b)return fail('Not allowed');
+  if(fn==='host_respond'){b.status=a.p_accept?'confirmed':'cancelled'}else{if(b.s<Date.now()+3600e3)return fail('Cannot cancel (needs 1h+ notice)');b.status='cancelled'}return{data:null,error:null}}};
+document.title='EV BOX (preview)';
+
+async function boot(){const{data:{session}}=await sb.auth.getSession();user=session?.user;prof=null;
+ if(user){const r=await sb.from('profiles').select('*').eq('id',user.id).single();prof=r.data}
+ $('#nav').innerHTML=prof?`<span class="tag">${prof.role}</span> <button class="o" id="lo">Log out</button>`:'<button id="li">Log in / Sign up</button>';
+ if($('#lo'))$('#lo').onclick=async()=>{await sb.auth.signOut();boot()};if($('#li'))$('#li').onclick=auth;
+ !prof?landing():prof.role==='host'?host():prof.role==='admin'?admin():customer()}
+async function landing(){app.innerHTML=`<section class="hero2"><div style="max-width:620px"><span class="tag">EV Box</span><h1>Your EV.<br>Your Charge.<br><span>Your Way.</span></h1><p class="m">Discover nearby EV charging points or earn money by sharing your home charger with other EV drivers.</p>
+<div class="row cta"><button id="fc">Find a Charger</button><button class="o" id="lc">List Your Charger</button></div><div class="sbar"><input id="sq" placeholder="Search by area or postcode"><button id="sg">Search</button></div></div></section>
+<div class="wrap"><div class="row" style="align-items:end"><div><h2>Featured chargers</h2><p class="m">Home and commercial chargers near you. Demo listings are marked.</p></div><a href="#" id="va" style="color:var(--g);flex:0 0 auto">View all</a></div><div class="c3" id="ft"></div>
+<h2>How it works</h2><div class="c3">${[['Step 1','Search','Enter your area and browse home and commercial chargers on the map.'],['Step 2','Book','Pick a time slot and send a request. The owner confirms it.'],['Step 3','Charge','Get the exact address once confirmed, plug in, and leave a review.']].map(s=>`<div class="card"><span class="tag">${s[0]}</span><h3>${s[1]}</h3><p class="m">${s[2]}</p></div>`).join('')}</div>
+<h2>Why EV Box</h2><div class="c4">${[['Earn from your driveway','Set your own price and hours.'],['Private by default','Home addresses are only shared after a booking is accepted.'],['More places to charge','Home chargers fill the gaps between public networks.'],['Greener journeys','Make better use of chargers that already exist.']].map(s=>`<div class="card"><h3 style="color:var(--g)">${s[0]}</h3><p class="m">${s[1]}</p></div>`).join('')}</div>
+<div class="card" style="text-align:center;padding:40px;background:linear-gradient(135deg,#14224a,#0f3d3a)"><h2>Got a charger at home?</h2><p class="m">List it in minutes and start earning.</p><button id="lc2">List Your Charger</button></div><p class="m" style="text-align:center">© 2026 EV Box</p></div>`;
+ ['fc','va'].forEach(i=>$('#'+i).onclick=e=>{e.preventDefault();customer()});$('#sg').onclick=()=>{const v=$('#sq').value;customer();$('#q').value=v};['lc','lc2'].forEach(i=>$('#'+i).onclick=()=>auth('host'));
+ const{data}=await sb.from('chargers').select('*');$('#ft').innerHTML=(data||[]).filter(c=>c.status==='approved').slice(0,3).map(c=>`<div class="card"><div class="ph">⚡</div><h3>${c.name}</h3><p class="m">${c.address}</p><span class="tag">${c.kind}</span> <span class="tag">${c.kw} kW</span> ${c.is_demo||c.name.startsWith('DEMO')?'<span class="tag" style="background:#665500">Demo</span>':''}<p><b>${inr(c.price_paise)}</b>/hr</p></div>`).join('')}
+function auth(pre){let signup=!!pre;const draw=()=>{app.innerHTML=`<div class="wrap" style="max-width:440px"><div class="card"><h2>${signup?'Create account':'Welcome back'}</h2>
+ ${signup?`<input id="nm" placeholder="Full name"><input id="ph" placeholder="Phone (+91…)"><select id="rl"><option value="customer">I own an EV – Customer</option><option value="host">I own an EV charger – Host</option></select>`:''}
+ <input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Password (min 8)"><button id="sub">${signup?'Sign up':'Log in'}</button>
+ <p><a href="#" id="sw" style="color:var(--g)">${signup?'Have an account? Log in':'New? Sign up'}</a> · <a href="#" id="fp" style="color:var(--m)">Forgot password</a></p></div></div>`;
+ if(signup&&pre)$('#rl').value=pre;
+ $('#sw').onclick=e=>{e.preventDefault();signup=!signup;draw()};
+ $('#fp').onclick=async e=>{e.preventDefault();const em=$('#em').value;if(!em)return err('Enter your email first');const r=await sb.auth.resetPasswordForEmail(em);err(r.error?r.error.message:'Reset link sent')};
+ $('#sub').onclick=async()=>{const em=$('#em').value.trim(),pw=$('#pw').value;if(!/^\S+@\S+\.\S+$/.test(em)||pw.length<8)return err('Valid email and 8+ char password required');
+  const r=signup?await sb.auth.signUp({email:em,password:pw,options:{data:{full_name:$('#nm').value,phone:$('#ph').value,role:$('#rl').value}}}):await sb.auth.signInWithPassword({email:em,password:pw});
+  if(r.error)return err(r.error.message);if(signup&&!r.data.session)return err('Check your email to confirm, then log in');boot()}};draw()}
+async function customer(){app.innerHTML=`<div class="wrap"><h2>Find a charger <span class="tag">Includes demo data</span></h2><div class="row"><input id="q" placeholder="Search name/address"><select id="k"><option value="">Public + Home</option><option value="public">Public</option><option value="home">Home</option></select><select id="av"><option value="">Any availability</option><option value="1">Available now</option></select><input id="mp" type="number" placeholder="Max ₹/hr"><button id="loc" class="o">Near me</button></div>
+ <div class="grid"><div id="map"></div><div id="side"><div class="card">Select a charger on the map.</div></div></div><h3>My bookings</h3><div id="bk"></div></div>`;
+ map=L.map('map').setView([17.4,78.43],11);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+ const{data,error}=await sb.from('chargers').select('*');if(error)return err(error.message);
+ let me=null;const mk=[];const draw=()=>{mk.forEach(m=>m.remove());mk.length=0;const q=$('#q').value.toLowerCase(),k=$('#k').value,av=$('#av').value,mp=+$('#mp').value*100;
+  data.filter(c=>(!q||(c.name+c.address).toLowerCase().includes(q))&&(!k||c.kind===k)&&(!av||c.accepting)&&(!mp||c.price_paise<=mp)).forEach(c=>{
+  const col=!c.accepting?'#888':c.kind==='home'?'#19e68c':'#4da3ff';const m=L.circleMarker([c.lat,c.lng],{radius:11,color:'#fff',fillColor:col,fillOpacity:.95}).addTo(map).on('click',()=>show(c));mk.push(m)})};
+ ['q','k','av','mp'].forEach(i=>$('#'+i).oninput=draw);draw();
+ $('#loc').onclick=()=>navigator.geolocation.getCurrentPosition(p=>{me=[p.coords.latitude,p.coords.longitude];map.setView(me,13);L.marker(me).addTo(map).bindPopup('You')},()=>err('Location permission denied'));
+ loadBk()}
+function show(c){sel=c;$('#side').innerHTML=`<div class="card"><h3>${c.name}</h3><p>${c.address}</p><span class="tag">${c.kind}</span> <span class="tag">${c.kw} kW</span> <span class="tag">${c.connector||''}</span> <span class="tag">${c.accepting?'Available':'Occupied/Off'}</span>
+ <p>${inr(c.price_paise)}/hr</p><p><a style="color:var(--g)" target="_blank" href="https://www.openstreetmap.org/directions?to=${c.lat},${c.lng}">Directions</a></p>
+ ${c.accepting?`<input id="st" type="datetime-local"><select id="hr"><option>1</option><option>2</option><option>3</option><option value="c">Custom…</option></select><input id="ch" type="number" step="0.5" placeholder="Custom hours" style="display:none">
+ <div id="pr"></div><button id="bkb">Request booking</button><small style="color:var(--m)">Payment is not yet connected; bookings stay “unpaid”.</small>`:''}</div>`;
+ if(!c.accepting)return;const hrs=()=>$('#hr').value==='c'?+$('#ch').value:+$('#hr').value;
+ const pr=()=>{$('#ch').style.display=$('#hr').value==='c'?'block':'none';const a=Math.round(c.price_paise*(hrs()||0)),f=Math.round(a*.15);$('#pr').innerHTML=`<p>Booking ${inr(a)}<br>Platform fee (incl.) ${inr(f)}<br><b>Total ${inr(a)}</b></p>`};$('#hr').onchange=$('#ch').oninput=pr;pr();
+ $('#bkb').onclick=async()=>{if(!user)return auth('customer');const s=$('#st').value;if(!s||!(hrs()>0))return err('Pick start time and duration');const r=await sb.rpc('create_booking',{p_charger:c.id,p_start:new Date(s).toISOString(),p_hours:hrs()});
+  r.error?err(r.error.message.includes('exclusion')?'That time slot is already booked':r.error.message):(err('Booking requested'),loadBk())}}
+async function loadBk(){if(!user){$('#bk').innerHTML='<div class="card">Log in to book and see your bookings.</div>';return}const{data}=await sb.from('bookings').select('*,chargers(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
+ $('#bk').innerHTML=(data||[]).map(b=>`<div class="card">${b.chargers.name} · ${inr(b.amount)} · <span class="tag">${b.status}</span> <span class="tag">${b.payment_status}</span> ${['pending','confirmed'].includes(b.status)?`<button class="o" data-id="${b.id}">Cancel</button>`:''}</div>`).join('')||'<div class="card">No bookings yet.</div>';
+ document.querySelectorAll('#bk button').forEach(x=>x.onclick=async()=>{const r=await sb.rpc('cancel_booking',{p_booking:x.dataset.id});r.error?err(r.error.message):loadBk()})}
+async function host(){app.innerHTML=`<div class="wrap"><h2>Host dashboard</h2><div class="card"><h3>List your charger</h3><div class="row"><input id="n" placeholder="Name"><input id="a" placeholder="Full address"></div><div class="row"><input id="la" type="number" step="any" placeholder="Latitude"><input id="lo2" type="number" step="any" placeholder="Longitude"><button class="o" id="gl">Use my location</button></div>
+ <div class="row"><input id="kw" type="number" placeholder="kW"><input id="cn" placeholder="Connector (Type 2…)"><input id="pp" type="number" placeholder="₹ per hour"></div><button id="add">Submit for approval</button></div>
+ <h3>My chargers</h3><div id="mc"></div><h3>Booking requests</h3><div id="hb"></div><div class="card" id="ea"></div></div>`;
+ $('#gl').onclick=()=>navigator.geolocation.getCurrentPosition(p=>{$('#la').value=p.coords.latitude;$('#lo2').value=p.coords.longitude},()=>err('Location denied'));
+ $('#add').onclick=async()=>{const v=id=>$(id).value.trim();if(!v('#n')||!v('#a')||!(+v('#kw')>0)||!(+v('#pp')>0)||!v('#la')||!v('#lo2'))return err('Fill all fields with valid values');
+  const r=await sb.from('chargers').insert({name:v('#n'),address:v('#a'),lat:+v('#la'),lng:+v('#lo2'),kind:'home',kw:+v('#kw'),connector:v('#cn'),price_paise:Math.round(+v('#pp')*100)});r.error?err(r.error.message):(err('Submitted for admin approval'),host())};
+ const cs=(await sb.from('chargers').select('*').eq('host_id',user.id)).data||[];
+ $('#mc').innerHTML=cs.map(c=>`<div class="card">${c.name} · ${inr(c.price_paise)}/hr <span class="tag">${c.status}</span> <button class="o" data-c="${c.id}" data-a="${c.accepting}">${c.accepting?'Turn OFF':'Turn ON'}</button></div>`).join('')||'<div class="card">No chargers yet.</div>';
+ document.querySelectorAll('#mc button').forEach(x=>x.onclick=async()=>{await sb.from('chargers').update({accepting:x.dataset.a!=='true'}).eq('id',x.dataset.c);host()});
+ const bs=(await sb.from('bookings').select('*,chargers(name)').order('created_at',{ascending:false})).data||[];
+ $('#hb').innerHTML=bs.map(b=>`<div class="card">${b.chargers.name} · ${new Date(b.during.split(',')[0].replace(/[\["]/g,'')).toLocaleString()} · ${b.hours}h · you earn ${inr(b.host_share)} <span class="tag">${b.status}</span> ${b.status==='pending'?`<button data-i="${b.id}" data-y="1">Accept</button> <button class="o" data-i="${b.id}">Reject</button>`:''}</div>`).join('')||'<div class="card">No bookings yet.</div>';
+ document.querySelectorAll('#hb button').forEach(x=>x.onclick=async()=>{const r=await sb.rpc('host_respond',{p_booking:x.dataset.i,p_accept:!!x.dataset.y});r.error?err(r.error.message):host()});
+ const ok=bs.filter(b=>['confirmed','completed'].includes(b.status));$('#ea').innerHTML=`<h3>Earnings</h3>Confirmed/completed: ${ok.length} · Total host share: ${inr(ok.reduce((s,b)=>s+b.host_share,0))} · Pending requests: ${bs.filter(b=>b.status==='pending').length}`}
+async function admin(){app.innerHTML=`<div class="wrap"><h2>Admin</h2><div class="card" id="rv"></div><h3>Charger approvals</h3><div id="pc"></div><h3>Users</h3><div id="us"></div></div>`;
+ const bs=(await sb.from('bookings').select('amount,fee,status')).data||[],ok=bs.filter(b=>['confirmed','completed'].includes(b.status));
+ $('#rv').innerHTML=`Bookings: ${bs.length} · Gross: ${inr(ok.reduce((s,b)=>s+b.amount,0))} · Platform fees (15%): ${inr(ok.reduce((s,b)=>s+b.fee,0))}`;
+ const cs=(await sb.from('chargers').select('*').eq('status','pending')).data||[];
+ $('#pc').innerHTML=cs.map(c=>`<div class="card">${c.name} — ${c.address} <button data-i="${c.id}" data-s="approved">Approve</button> <button class="o" data-i="${c.id}" data-s="rejected">Reject</button></div>`).join('')||'<div class="card">Nothing pending.</div>';
+ document.querySelectorAll('#pc button').forEach(x=>x.onclick=async()=>{await sb.from('chargers').update({status:x.dataset.s}).eq('id',x.dataset.i);admin()});
+ const us=(await sb.from('profiles').select('*')).data||[];$('#us').innerHTML=us.map(u=>`<div class="card">${u.full_name||'—'} · ${u.role} · ${u.phone||''}</div>`).join('')}
+boot();</script></body></html>
